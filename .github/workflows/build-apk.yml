@@ -1,0 +1,52 @@
+name: build-apk
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "模型档位（tiny / small / medium）"
+        required: false
+        default: "tiny"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".github/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 写入签名证书
+        run: |
+          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/keystore.jks"
+          echo "keystore ready"
+
+      - name: 构建 Release
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: 对齐并签名
+        run: |
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          "$BT/zipalign" -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" sign \
+            --ks "$RUNNER_TEMP/keystore.jks" \
+            --ks-key-alias tulsi_zh \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out Tulsi_Gallery_CN.apk "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" verify Tulsi_Gallery_CN.apk
+          ls -lh Tulsi_Gallery_CN.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tulsi_Gallery_CN
+          path: Tulsi_Gallery_CN.apk
+          retention-days: 14
